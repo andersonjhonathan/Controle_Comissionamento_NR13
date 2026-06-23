@@ -725,6 +725,7 @@ function buildModel(raw){
       dataRecebimento: toJsDate(r["Data Recebimento"]),
       prazo, diasRestantes: dias,
       status: cleanStr(r["Status"]) || "Não informado",
+      enquadramento: cleanStr(r["Enquadrados e Não Enquadrados NR-13"]) || "Não informado",
       peso: r["Peso %"]!=null ? Number(r["Peso %"]) : null,
       observacoes: cleanStr(r["Observações"]),
       tipo: eq ? eq.tipo : "—",
@@ -795,6 +796,7 @@ function buildModel(raw){
   const tipoDist = groupCount(equip, e=>e.tipo);
   const fabricanteDist = groupCount(equip, e=>e.fabricante);
   const docStatusDist = groupCount(docs, d=>d.status);
+  const enquadramentoDist = groupCount(docs, d=>d.enquadramento);
   const pendSetorDist = groupCount(pend, p=>p.setor);
   const pendStatusDist = groupCount(pend, p=>p.status);
   const pendPrioridadeDist = groupCount(pendAbertas, p=>p.prioridade);
@@ -811,7 +813,7 @@ function buildModel(raw){
     docs, totalDocs, docsConcluidos, byItem, disciplinaRef,
     pend, totalPend, pendAbertas, pendAltaAberta,
     weeks, summaryNotes,
-    dist: { statusManualDist, statusAutoDist, categoriaDist, tipoDist, fabricanteDist, docStatusDist, pendSetorDist, pendStatusDist, pendPrioridadeDist, responsavelDocStats },
+    dist: { statusManualDist, statusAutoDist, categoriaDist, tipoDist, fabricanteDist, docStatusDist, enquadramentoDist, pendSetorDist, pendStatusDist, pendPrioridadeDist, responsavelDocStats },
     generatedAt: new Date(),
   };
 }
@@ -899,7 +901,7 @@ function renderKpis(m){
     { label:"Em Andamento", value:fmtInt(m.equip.filter(e=>e.statusAuto==="Em andamento").length), accent:PALETTE.blueLight, accentSoft:"var(--blue-100)", icon:"clock" },
     { label:"Pendências Abertas", value:fmtInt(m.pendAbertas.length), small:`/ ${m.totalPend}`, accent:PALETTE.orange, accentSoft:"var(--orange-100)", icon:"alert",
       delta: m.pendAbertas.length? `${m.pendAltaAberta.length} de alta prioridade` : "sem pendências", deltaClass: m.pendAltaAberta.length? "bad":"good" },
-    { label:"Aguardando Documentos", value:fmtInt(m.equip.filter(e=>e.statusAuto==="Aguardando documentos").length), accent:PALETTE.orangeDark, accentSoft:"var(--orange-100)", icon:"flame" },
+    { label:"Aguardando Documentos", value:fmtInt(m.equip.filter(e=>e.statusManual==="Aguardando documentos").length), accent:PALETTE.orangeDark, accentSoft:"var(--orange-100)", icon:"flame" },
     { label:"Itens Obrigatórios Críticos", value:fmtInt(docPendCriticos), small:"pendentes", accent:PALETTE.red, accentSoft:"var(--red-100)", icon:"alert",
       delta:"obrigatórios sem conclusão", deltaClass:"bad" },
     { label:"Avanço Geral (ponderado)", value:fmtPct(m.avancoGeralPonderado), accent:PALETTE.orange, accentSoft:"var(--orange-100)", icon:"gauge",
@@ -1247,10 +1249,14 @@ function tabDocumentos_html(m){
     <div class="section-title"><span class="tag-dot"></span>Documentos do prontuário</div>
     <p class="section-desc">${fmtInt(m.totalDocs)} itens cadastrados (18 por equipamento) — granularidade máxima do databook, base de cálculo de todo o avanço do painel.</p>
 
-    <div class="grid-row cols-2">
+    <div class="grid-row cols-3">
       <div class="card chart-wrap">
         <div class="chart-title">Status dos itens do databook</div>
         <div style="height:230px;"><canvas id="chDocStatus"></canvas></div>
+      </div>
+      <div class="card chart-wrap">
+        <div class="chart-title">Enquadrados x Não enquadrados NR-13</div>
+        <div style="height:230px;"><canvas id="chEnquadramento"></canvas></div>
       </div>
       <div class="card chart-wrap">
         <div class="chart-title">Carga de trabalho por responsável <span class="muted">itens concluídos x total</span></div>
@@ -1264,6 +1270,9 @@ function tabDocumentos_html(m){
 function tabDocumentos_mount(m){
   donutChart('chDocStatus', m.dist.docStatusDist, {
     "Concluído":PALETTE.green, "Aguardando":PALETTE.orange, "Pendente":PALETTE.red, "Em análise":PALETTE.blue, "Em elaboração":PALETTE.amber
+  });
+  donutChart('chEnquadramento', m.dist.enquadramentoDist, {
+    "Enquadrado NR-13":PALETTE.blue, "Não enquadrado NR-13":PALETTE.gray
   });
   const respEntries = Object.entries(m.dist.responsavelDocStats).filter(([k])=>k!=="Não atribuído").sort((a,b)=>b[1].total-a[1].total);
   barChartV('chResponsavelDoc', respEntries.map(([k,v])=>({label:k,value:v.total})), {
@@ -1280,6 +1289,7 @@ function tabDocumentos_mount(m){
     searchFields:[r=>r.tag, r=>r.equipamento, r=>r.item, r=>r.responsavel],
     filters:[
       { key:'status', label:'Status', valueFn:r=>r.status, options: uniqueSorted(m.docs.map(d=>d.status)) },
+      { key:'enquadramento', label:'Enquadramento NR-13', valueFn:r=>r.enquadramento, options: uniqueSorted(m.docs.map(d=>d.enquadramento)) },
       { key:'obrigatorio', label:'Obrigatório', valueFn:r=>r.obrigatorio, options: uniqueSorted(m.docs.map(d=>d.obrigatorio)) },
       { key:'responsavel', label:'Responsável', valueFn:r=>r.responsavel, options: uniqueSorted(m.docs.map(d=>d.responsavel)) },
     ],
@@ -1289,6 +1299,7 @@ function tabDocumentos_mount(m){
       { key:'tag', label:'TAG', render:r=>`<span class="cell-tag">${escapeHtml(r.tag)}</span>`, sortVal:r=>r.tag },
       { key:'equipamento', label:'Equipamento', render:r=>`<span class="cell-wrap">${escapeHtml(r.equipamento)}</span>`, sortVal:r=>r.equipamento },
       { key:'item', label:'Documento / Item', render:r=>`<span class="cell-wrap">${escapeHtml(r.item)}</span>`, sortVal:r=>r.item },
+      { key:'enquadramento', label:'Enquadramento NR-13', render:r=>escapeHtml(r.enquadramento), sortVal:r=>r.enquadramento },
       { key:'obrigatorio', label:'Obrigatório', render:r=>escapeHtml(r.obrigatorio), sortVal:r=>r.obrigatorio },
       { key:'status', label:'Status', render:r=>{ const s=statusDocStyle(r.status); return `<span class="badge ${s.badge}"><span class="dot" style="background:${s.dot}"></span>${escapeHtml(r.status)}</span>`; }, sortVal:r=>r.status },
       { key:'responsavel', label:'Responsável', render:r=>escapeHtml(r.responsavel), sortVal:r=>r.responsavel },
